@@ -7,6 +7,14 @@ import { generateId } from '../utils/formatters';
 
 const API_BASE = '/api';
 
+interface BBSignal {
+  signal: string;
+  reason: string;
+  strength: number;
+  pctB?: number;
+  volatilityAlert?: string | null;
+}
+
 interface AppState {
   pairs: PairConfig[];
   prices: Record<string, StockPrice>;
@@ -14,9 +22,11 @@ interface AppState {
   trades: TradeRecord[];
   settings: Settings;
   history: PriceHistory[];
+  bbSignal: BBSignal | null;
   priceLoading: boolean;
   historyLoading: boolean;
   lastUpdated: string | null;
+  sseConnected: boolean;
   addHolding: (h: Omit<Holding, 'id'>) => void;
   updateHolding: (id: string, updates: Partial<Pick<Holding, 'quantity' | 'avgPrice'>>) => void;
   removeHolding: (id: string) => void;
@@ -47,40 +57,64 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [trades, setTrades] = useState<TradeRecord[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [history, setHistory] = useState<PriceHistory[]>([]);
+  const [bbSignal, setBbSignal] = useState<BBSignal | null>(null);
   const [priceLoading, setPriceLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [sseConnected, setSseConnected] = useState(false);
   const syncTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sseRef = useRef<EventSource | null>(null);
 
-  // --- Fetch real-time prices from API ---
-  const fetchPrices = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/stock/prices`);
-      if (!res.ok) throw new Error('Price API error');
-      const data = await res.json();
-      setPrices({
-        samsung: {
-          commonPrice: data.commonPrice,
-          preferredPrice: data.preferredPrice,
-          commonChange: data.commonChange,
-          preferredChange: data.preferredChange,
-        },
-      });
-      setLastUpdated(new Date().toLocaleTimeString('ko-KR'));
-    } catch (err) {
-      console.error('Failed to fetch prices:', err);
-    } finally {
-      setPriceLoading(false);
-    }
+  // --- SSE: Real-time price stream ---
+  useEffect(() => {
+    const connectSSE = () => {
+      const es = new EventSource(`${API_BASE}/stock/stream`);
+      sseRef.current = es;
+
+      es.onopen = () => { setSseConnected(true); };
+
+      es.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          setPrices({
+            samsung: {
+              commonPrice: data.commonPrice,
+              preferredPrice: data.preferredPrice,
+              commonChange: data.commonChange,
+              preferredChange: data.preferredChange,
+              commonYield: data.commonYield,
+              preferredYield: data.preferredYield,
+              yieldGap: data.yieldGap,
+              dividendDDay: data.dividendDDay,
+            },
+          });
+          setLastUpdated(new Date().toLocaleTimeString('ko-KR'));
+          setPriceLoading(false);
+        } catch (err) {
+          console.error('SSE parse error:', err);
+        }
+      };
+
+      es.onerror = () => {
+        setSseConnected(false);
+        es.close();
+        // Reconnect after 5 seconds
+        setTimeout(connectSSE, 5000);
+      };
+    };
+
+    connectSSE();
+    return () => { sseRef.current?.close(); };
   }, []);
 
-  // --- Fetch history from API ---
+  // --- Fetch history + indicators from API ---
   const fetchHistory = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/stock/history?days=400`);
+      const res = await fetch(`${API_BASE}/stock/history`);
       if (!res.ok) throw new Error('History API error');
-      const data: PriceHistory[] = await res.json();
-      setHistory(data);
+      const data = await res.json();
+      if (data.history) setHistory(data.history);
+      if (data.signal) setBbSignal(data.signal);
     } catch (err) {
       console.error('Failed to fetch history:', err);
     } finally {
@@ -88,7 +122,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, []);
 
-  // --- Fetch user data from server (shared across browsers) ---
+  // --- Fetch user data from server ---
   const fetchUserData = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/userdata`);
@@ -118,19 +152,42 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }, 500);
   }, []);
 
-  // Init: fetch everything
+  // Init
   useEffect(() => {
-    fetchPrices();
     fetchHistory();
     fetchUserData();
-    // Refresh prices every 30 seconds
-    const interval = setInterval(fetchPrices, 30000);
-    // Refresh user data every 10 seconds (for cross-browser sync)
+    // Refresh history every 5 minutes
+    const histInterval = setInterval(fetchHistory, 5 * 60 * 1000);
+    // Sync user data every 10 seconds
     const syncInterval = setInterval(fetchUserData, 10000);
-    return () => { clearInterval(interval); clearInterval(syncInterval); };
-  }, [fetchPrices, fetchHistory, fetchUserData]);
+    return () => { clearInterval(histInterval); clearInterval(syncInterval); };
+  }, [fetchHistory, fetchUserData]);
 
-  // CRUD with server sync
+  // Manual refresh
+  const refreshPrices = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/stock/prices`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setPrices({
+        samsung: {
+          commonPrice: data.commonPrice,
+          preferredPrice: data.preferredPrice,
+          commonChange: data.commonChange,
+          preferredChange: data.preferredChange,
+          commonYield: data.commonYield,
+          preferredYield: data.preferredYield,
+          yieldGap: data.yieldGap,
+          dividendDDay: data.dividendDDay,
+        },
+      });
+      setLastUpdated(new Date().toLocaleTimeString('ko-KR'));
+    } catch (err) {
+      console.error('Refresh failed:', err);
+    }
+  }, []);
+
+  // CRUD
   const addHolding = useCallback((h: Omit<Holding, 'id'>) => {
     setHoldings(prev => {
       const next = [...prev, { ...h, id: generateId() }];
@@ -199,11 +256,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   return (
     <AppContext.Provider value={{
-      pairs, prices, holdings, trades, settings, history,
-      priceLoading, historyLoading, lastUpdated,
+      pairs, prices, holdings, trades, settings, history, bbSignal,
+      priceLoading, historyLoading, lastUpdated, sseConnected,
       addHolding, updateHolding, removeHolding, addTrade, removeTrade,
       updateSettings, getDisparityRate, getSignalForPair,
-      exportData, importData, refreshPrices: fetchPrices,
+      exportData, importData, refreshPrices,
     }}>
       {children}
     </AppContext.Provider>

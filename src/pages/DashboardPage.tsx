@@ -1,44 +1,88 @@
 import React, { useState, useMemo } from 'react';
-import {
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  ReferenceLine, Area, AreaChart, ComposedChart, Line,
-} from 'recharts';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Area, ComposedChart, Line, Bar, Cell, Brush } from 'recharts';
 import { useApp } from '../context/AppContext';
 import { calculateSwitchSimulation } from '../utils/calculations';
 import { formatNumber, formatCurrency, formatPercent, formatDate } from '../utils/formatters';
-import { getSignalLabel, getSignalEmoji, getDisparityBgClass, getDisparityHex } from '../utils/signals';
+import { getDisparityHex } from '../utils/signals';
 
-type Period = '1W' | '1M' | '3M' | '1Y';
-const periodDays: Record<Period, number> = { '1W': 7, '1M': 30, '3M': 90, '1Y': 365 };
-const periodLabels: Record<Period, string> = { '1W': '1주일', '1M': '1개월', '3M': '3개월', '1Y': '1년' };
+type Period = '1M' | '3M' | '6M' | '1Y';
+const periodDays: Record<Period, number> = { '1M': 22, '3M': 66, '6M': 132, '1Y': 252 };
+const periodLabels: Record<Period, string> = { '1M': '1개월', '3M': '3개월', '6M': '6개월', '1Y': '1년' };
 
 export const DashboardPage: React.FC = () => {
-  const {
-    prices, settings, trades, history,
-    priceLoading, historyLoading, lastUpdated,
-    addTrade, removeTrade, getDisparityRate, getSignalForPair, refreshPrices,
-  } = useApp();
-
+  const { prices, settings, trades, history, bbSignal, priceLoading, historyLoading, lastUpdated, sseConnected, addTrade, removeTrade, getDisparityRate, refreshPrices } = useApp();
   const price = prices['samsung'];
   const rate = getDisparityRate('samsung');
-  const signal = getSignalForPair('samsung');
 
   const [chartPeriod, setChartPeriod] = useState<Period>('3M');
-  const [chartType, setChartType] = useState<'disparity' | 'price'>('disparity');
   const [simQty, setSimQty] = useState(100);
   const [simDir, setSimDir] = useState<'c2p' | 'p2c'>('c2p');
-  const [showTradeForm, setShowTradeForm] = useState(false);
-  const [tradeForm, setTradeForm] = useState({ type: 'common' as 'common' | 'preferred', action: 'buy' as 'buy' | 'sell', quantity: '', price: '' });
+  
+  // HTS Style Order State
+  const [orderType, setOrderType] = useState<'buy' | 'sell'>('buy');
+  const [orderTarget, setOrderTarget] = useState<'common' | 'preferred'>('preferred');
+  const [orderQty, setOrderQty] = useState('');
+  const [orderPrice, setOrderPrice] = useState('');
+  const [showChecklist, setShowChecklist] = useState(false);
+  const [checklistData, setChecklistData] = useState([false, false, false, false]);
 
-  const chartData = useMemo(() => history.slice(-periodDays[chartPeriod]), [history, chartPeriod]);
+  const chartDataRaw = useMemo(() => history.slice(-periodDays[chartPeriod]), [history, chartPeriod]);
+  
+  const samsungTrades = trades.filter(t => t.pairId === 'samsung');
+  const tradeMap = useMemo(() => {
+    const map = new Map();
+    samsungTrades.forEach(t => {
+      const d = t.date.slice(0, 10);
+      if (!map.has(d)) map.set(d, []);
+      map.get(d).push(t);
+    });
+    return map;
+  }, [samsungTrades]);
+
+  const chartData = useMemo(() => {
+    return chartDataRaw.map(d => {
+      const dayTrades = tradeMap.get(d.date);
+      let tradePoint = null;
+      if (dayTrades && dayTrades.length > 0) {
+        const hasBuyPref = dayTrades.some((t: any) => t.type === 'preferred' && t.action === 'buy');
+        const hasSellPref = dayTrades.some((t: any) => t.type === 'preferred' && t.action === 'sell');
+        if (hasBuyPref) tradePoint = d.disparityRate - 0.5;
+        else if (hasSellPref) tradePoint = d.disparityRate + 0.5;
+        else tradePoint = d.disparityRate;
+      }
+      return { ...d, tradePoint, hasTrade: !!dayTrades };
+    });
+  }, [chartDataRaw, tradeMap]);
+
   const stats = useMemo(() => {
-    if (!chartData.length) return { avg: 0, max: 0, min: 0, current: 0, vsAvg: 0 };
+    if (!chartData.length) return { avg: 0, max: 0, min: 0, vsAvg: 0, rsi: 50, zScore: 0, avgReversionDays: 0, correlation: 1, momentum: 0 };
     const rates = chartData.map(d => d.disparityRate);
     const avg = rates.reduce((a, b) => a + b, 0) / rates.length;
-    return {
-      avg: +avg.toFixed(2), max: +Math.max(...rates).toFixed(2),
-      min: +Math.min(...rates).toFixed(2), current: rate, vsAvg: +(rate - avg).toFixed(2),
-    };
+    const stdDev = Math.sqrt(rates.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / rates.length);
+    const zScore = stdDev > 0 ? (rate - avg) / stdDev : 0;
+    const lastRsi = chartData[chartData.length - 1].rsi || 50;
+    
+    let daysAbove = 0; let reversionCount = 0; let currentStreak = 0;
+    rates.forEach(r => {
+      if (r > avg) currentStreak++;
+      else if (currentStreak > 0) { daysAbove += currentStreak; reversionCount++; currentStreak = 0; }
+    });
+    const avgReversionDays = reversionCount > 0 ? Math.round(daysAbove / reversionCount) : 0;
+
+    // Correlation
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+    const n = chartData.length;
+    chartData.forEach(d => {
+      sumX += d.commonPrice; sumY += d.preferredPrice;
+      sumXY += d.commonPrice * d.preferredPrice;
+      sumX2 += d.commonPrice * d.commonPrice; sumY2 += d.preferredPrice * d.preferredPrice;
+    });
+    const correlation = n > 0 ? (n * sumXY - sumX * sumY) / Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY)) : 0;
+
+    // Momentum (ROC 5-day)
+    const roc = rates.length > 5 ? rates[rates.length - 1] - rates[rates.length - 6] : 0;
+
+    return { avg: +avg.toFixed(2), max: +Math.max(...rates).toFixed(2), min: +Math.min(...rates).toFixed(2), vsAvg: +(rate - avg).toFixed(2), rsi: lastRsi, zScore: +zScore.toFixed(2), avgReversionDays, correlation: +correlation.toFixed(4), momentum: +roc.toFixed(2) };
   }, [chartData, rate]);
 
   const simResult = useMemo(() => {
@@ -48,256 +92,272 @@ export const DashboardPage: React.FC = () => {
     return calculateSwitchSimulation(simQty, sellP, buyP, settings.commissionRate, settings.taxRate);
   }, [simQty, simDir, price, settings]);
 
-  const samsungTrades = trades.filter(t => t.pairId === 'samsung');
-  const priceDiff = price.commonPrice - price.preferredPrice;
+  const handleOrderSubmit = () => {
+    if (!orderQty || !orderPrice) return;
+    if (!showChecklist) { setShowChecklist(true); return; }
+    if (checklistData.filter(Boolean).length < 3) { alert('체크리스트를 3개 이상 확인해주세요.'); return; }
+    
+    addTrade({ date: new Date().toISOString(), pairId: 'samsung', name: '삼성전자', type: orderTarget, action: orderType, quantity: +orderQty, price: +orderPrice });
+    setOrderQty(''); setOrderPrice('');
+    setShowChecklist(false); setChecklistData([false, false, false, false]);
+  };
 
-  const handleAddTrade = () => {
-    if (!tradeForm.quantity || !tradeForm.price) return;
-    addTrade({ date: new Date().toISOString(), pairId: 'samsung', name: '삼성전자', type: tradeForm.type, action: tradeForm.action, quantity: +tradeForm.quantity, price: +tradeForm.price });
-    setTradeForm({ type: 'common', action: 'buy', quantity: '', price: '' });
-    setShowTradeForm(false);
+  const getRsiColor = (rsi: number) => {
+    if (rsi >= 70) return '#ff4757';
+    if (rsi <= 30) return '#3742fa';
+    return '#ffa502';
+  };
+
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload?.[0]) return null;
+    const d = payload[0].payload;
+    return (
+      <div className="bg-[#0b0e14]/95 border border-[#1e293b] p-3 text-[11px] shadow-2xl font-mono">
+        <div className="text-slate-400 mb-2 border-b border-[#1e293b] pb-1">{label}</div>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+          <div className="text-[#00d4ff] font-bold">괴리율</div><div className="text-right text-[#00d4ff] font-bold">{d.disparityRate?.toFixed(2)}%</div>
+          <div className="text-[#ff6b81]">BB Upper</div><div className="text-right text-slate-300">{d.bb_upper}%</div>
+          <div className="text-[#7bed9f]">BB Lower</div><div className="text-right text-slate-300">{d.bb_lower}%</div>
+          <div className="col-span-2 my-1 border-t border-[#1e293b]"></div>
+          <div className="text-[#ff4757]">보통주</div><div className="text-right text-slate-300">{formatNumber(d.commonPrice)}</div>
+          <div className="text-[#3742fa]">우선주</div><div className="text-right text-slate-300">{formatNumber(d.preferredPrice)}</div>
+          <div className="text-[#ff4757] opacity-60">Vol(보)</div><div className="text-right text-slate-400">{formatNumber(d.commonVolume)}</div>
+          <div className="text-[#3742fa] opacity-60">Vol(우)</div><div className="text-right text-slate-400">{formatNumber(d.preferredVolume)}</div>
+        </div>
+      </div>
+    );
+  };
+
+  const CustomDot = (props: any) => {
+    const { cx, cy, payload } = props;
+    if (!payload.hasTrade) return null;
+    return <circle cx={cx} cy={cy} r={4} fill="#00d4ff" stroke="#0b0e14" strokeWidth={1.5} />;
   };
 
   if (priceLoading && !price.commonPrice) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <div className="text-4xl mb-4 animate-pulse">📊</div>
-        <p className="text-slate-muted">네이버 증권에서 실시간 데이터를 가져오는 중...</p>
-      </div>
-    );
+    return <div className="flex h-screen items-center justify-center bg-[#050505] text-[#00d4ff] font-mono text-xs animate-pulse">CONNECTING TO EXCHANGE...</div>;
   }
 
+  const riskLevel = stats.zScore > 2 ? 'EXTREME (SELL COMM/BUY PREF)' : stats.zScore < -1.5 ? 'WARNING (BUY COMM/SELL PREF)' : stats.zScore > 1 ? 'ELEVATED' : 'NEUTRAL';
+  const riskColor = stats.zScore > 2 ? 'text-[#ff4757]' : stats.zScore < -1.5 ? 'text-[#ffa502]' : stats.zScore > 1 ? 'text-[#00d4ff]' : 'text-slate-400';
+
   return (
-    <div className="animate-fade-in space-y-6">
-      {/* HERO */}
-      <div className="text-center py-6">
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <span className="text-sm font-medium text-slate-muted tracking-widest uppercase">Samsung Electronics</span>
-          {lastUpdated && (
-            <button onClick={refreshPrices} className="text-xs text-cyan-accent hover:underline" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}>
-              🔄 {lastUpdated} 갱신
-            </button>
-          )}
+    <div className="bg-[#050505] min-h-screen text-slate-300 font-sans pb-10">
+      {/* 🖥️ TOP STATUS BAR (HTS Style) */}
+      <div className="bg-[#0b0e14] border-b border-[#1e293b] px-4 py-1.5 flex items-center justify-between text-[10px] font-mono tracking-wider sticky top-0 z-50 shadow-md">
+        <div className="flex items-center gap-4">
+          <span className="flex items-center gap-1.5 font-bold text-white"><span className={`w-1.5 h-1.5 rounded-full ${sseConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span> PAIR TRADING TERMINAL v3.0</span>
+          <span className="text-[#00d4ff]">KRX: 005930 / 005935</span>
+          <span className="hidden sm:inline">CORR: {stats.correlation.toFixed(4)}</span>
+          <span className="hidden sm:inline">ROC(5): {stats.momentum > 0 ? '+' : ''}{stats.momentum}%p</span>
         </div>
-        <h1 className="text-3xl sm:text-4xl font-black mb-1">삼성전자 <span className="text-cyan-accent">괴리율</span></h1>
-        <p className="text-sm text-slate-muted">보통주 005930 · 우선주 005935 · 실시간 데이터</p>
-
-        <div className="mt-6 inline-flex flex-col items-center">
-          <div className="text-6xl sm:text-8xl font-black tracking-tight animate-pulse-glow rounded-2xl px-8 py-4" style={{ color: getDisparityHex(rate) }}>
-            {rate.toFixed(1)}%
-          </div>
-          <div className="mt-3 flex items-center gap-3">
-            <span className={`text-sm font-semibold px-4 py-1.5 rounded-full ${getDisparityBgClass(rate)}`}>
-              {getSignalEmoji(signal)} {getSignalLabel(signal)}
-            </span>
-            <span className="text-sm text-slate-muted">가격차 {formatCurrency(priceDiff)}</span>
-          </div>
+        <div className="flex items-center gap-4 text-slate-400">
+          <span className={riskColor}>{riskLevel}</span>
+          <span>SYS TIME: {new Date().toLocaleTimeString()}</span>
+          {lastUpdated && <button onClick={refreshPrices} className="hover:text-white transition-colors">🔄 SYNC</button>}
         </div>
       </div>
 
-      {/* PRICE COMPARISON */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="card bg-gradient-to-br from-stock-up/5 to-transparent border-stock-up/10">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-medium text-slate-muted tracking-wide">보통주</span>
-            <span className="text-xs text-slate-muted font-mono">005930</span>
+      <div className="p-4 grid grid-cols-1 xl:grid-cols-12 gap-4">
+        
+        {/* ========================================================= */}
+        {/* 📉 LEFT PANE: MULTI-PANE CHARTS (Col Span 8) */}
+        {/* ========================================================= */}
+        <div className="xl:col-span-8 flex flex-col gap-4">
+          
+          {/* CHART CONTROLS */}
+          <div className="bg-[#0b0e14] border border-[#1e293b] rounded-lg p-2 flex justify-between items-center">
+            <div className="flex gap-1 bg-[#151b2b] p-1 rounded">
+              {(Object.keys(periodDays) as Period[]).map(p => (
+                <button key={p} onClick={() => setChartPeriod(p)} className={`px-4 py-1 text-[11px] font-bold rounded transition-colors ${chartPeriod === p ? 'bg-[#2563eb] text-white' : 'text-slate-400 hover:text-slate-200'}`}>{p}</button>
+              ))}
+            </div>
+            {historyLoading && <span className="text-[10px] text-[#00d4ff] animate-pulse font-mono">FETCHING HISTORICAL DATA...</span>}
+            <div className="flex gap-3 text-[10px] font-mono pr-2">
+              <span className="text-[#00d4ff] flex items-center gap-1"><div className="w-2 h-0.5 bg-[#00d4ff]"></div> DISPARITY</span>
+              <span className="text-[#ff6b81] flex items-center gap-1"><div className="w-2 h-0.5 bg-[#ff6b81]"></div> BB UPPER</span>
+              <span className="text-[#7bed9f] flex items-center gap-1"><div className="w-2 h-0.5 bg-[#7bed9f]"></div> BB LOWER</span>
+            </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold">{formatNumber(price.commonPrice)}<span className="text-base font-normal text-slate-muted">원</span></div>
-          <div className={`text-sm font-semibold mt-1 ${price.commonChange >= 0 ? 'text-stock-up' : 'text-stock-down'}`}>
-            {formatPercent(price.commonChange)}
+
+          {/* MAIN CHART 1: DISPARITY & BB */}
+          <div className="bg-[#0b0e14] border border-[#1e293b] rounded-lg p-3 h-[400px] relative">
+            <div className="absolute top-4 left-4 z-10 font-mono text-xs text-slate-400 font-bold opacity-50">DISPARITY & B-BANDS</div>
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={chartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="bbBand" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#ff6b81" stopOpacity={0.1} /><stop offset="50%" stopColor="transparent" stopOpacity={0} /><stop offset="100%" stopColor="#7bed9f" stopOpacity={0.1} /></linearGradient>
+                    <linearGradient id="dispFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#00d4ff" stopOpacity={0.2} /><stop offset="100%" stopColor="#00d4ff" stopOpacity={0} /></linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="1 4" stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#475569' }} tickFormatter={v => v.slice(5)} axisLine={false} tickLine={false} minTickGap={30} />
+                  <YAxis tick={{ fontSize: 9, fill: '#475569', fontFamily: 'monospace' }} tickFormatter={v => `${v.toFixed(1)}%`} domain={['auto','auto']} axisLine={false} tickLine={false} orientation="right" />
+                  <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#334155', strokeWidth: 1, strokeDasharray: '4 4' }} />
+                  <Area type="monotone" dataKey="bb_upper" stroke="none" fill="url(#bbBand)" />
+                  <Line type="monotone" dataKey="bb_upper" stroke="#ff6b81" strokeWidth={1} strokeDasharray="2 4" dot={false} opacity={0.7} />
+                  <Line type="monotone" dataKey="bb_middle" stroke="#64748b" strokeWidth={1} strokeDasharray="2 2" dot={false} opacity={0.5} />
+                  <Line type="monotone" dataKey="bb_lower" stroke="#7bed9f" strokeWidth={1} strokeDasharray="2 4" dot={false} opacity={0.7} />
+                  <Area type="monotone" dataKey="disparityRate" stroke="#00d4ff" strokeWidth={2} fill="url(#dispFill)" activeDot={{ r: 4, fill: '#00d4ff', stroke: '#0b0e14' }} />
+                  <Line type="monotone" dataKey="disparityRate" stroke="none" dot={<CustomDot />} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : <div className="h-full flex items-center justify-center text-slate-600 font-mono text-xs">NO DATA</div>}
+          </div>
+
+          {/* MAIN CHART 2: PRICE & VOLUME OVERLAY */}
+          <div className="bg-[#0b0e14] border border-[#1e293b] rounded-lg p-3 h-[250px] relative">
+            <div className="absolute top-4 left-4 z-10 font-mono text-xs text-slate-400 font-bold opacity-50">PRICE & VOLUME DEPTH</div>
+            <div className="absolute top-4 right-4 z-10 flex gap-3 text-[9px] font-mono text-slate-500">
+              <span className="flex items-center gap-1"><div className="w-2 h-0.5 bg-[#ff4757]"></div> COMM P/V</span>
+              <span className="flex items-center gap-1"><div className="w-2 h-0.5 bg-[#3742fa]"></div> PREF P/V</span>
+            </div>
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={chartData} margin={{ top: 20, right: 0, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="1 4" stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#475569' }} tickFormatter={v => v.slice(5)} axisLine={false} tickLine={false} minTickGap={30} />
+                  <YAxis yAxisId="price" tick={{ fontSize: 9, fill: '#475569', fontFamily: 'monospace' }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} domain={['auto','auto']} axisLine={false} tickLine={false} orientation="right" />
+                  <YAxis yAxisId="vol" tick={false} domain={[0,'auto']} axisLine={false} tickLine={false} orientation="left" hide />
+                  <Tooltip content={<CustomTooltip />} cursor={{ fill: '#1e293b', opacity: 0.2 }} />
+                  <Bar yAxisId="vol" dataKey="commonVolume" fill="#ff4757" opacity={0.15} radius={[2, 2, 0, 0]} />
+                  <Bar yAxisId="vol" dataKey="preferredVolume" fill="#3742fa" opacity={0.15} radius={[2, 2, 0, 0]} />
+                  <Line yAxisId="price" type="step" dataKey="commonPrice" stroke="#ff4757" strokeWidth={1.5} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
+                  <Line yAxisId="price" type="step" dataKey="preferredPrice" stroke="#3742fa" strokeWidth={1.5} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
+                  <Brush dataKey="date" height={20} stroke="#1e293b" fill="#0b0e14" tickFormatter={() => ''} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : null}
           </div>
         </div>
-        <div className="card bg-gradient-to-br from-stock-down/5 to-transparent border-stock-down/10">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-medium text-slate-muted tracking-wide">우선주</span>
-            <span className="text-xs text-slate-muted font-mono">005935</span>
-          </div>
-          <div className="text-2xl sm:text-3xl font-bold">{formatNumber(price.preferredPrice)}<span className="text-base font-normal text-slate-muted">원</span></div>
-          <div className={`text-sm font-semibold mt-1 ${price.preferredChange >= 0 ? 'text-stock-up' : 'text-stock-down'}`}>
-            {formatPercent(price.preferredChange)}
-          </div>
-        </div>
-      </div>
 
-      {/* KEY STATS */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: '평균 괴리율', value: `${stats.avg}%`, sub: `${periodLabels[chartPeriod]} 기준`, color: 'text-cyan-accent' },
-          { label: '현재 vs 평균', value: `${stats.vsAvg >= 0 ? '+' : ''}${stats.vsAvg}%p`, sub: stats.vsAvg > 0 ? '평균보다 높음' : '평균보다 낮음', color: stats.vsAvg > 2 ? 'text-signal-danger' : stats.vsAvg < -2 ? 'text-signal-safe' : 'text-signal-caution' },
-          { label: '최대 괴리율', value: `${stats.max}%`, sub: '기간 내 최고', color: 'text-signal-danger' },
-          { label: '최소 괴리율', value: `${stats.min}%`, sub: '기간 내 최저', color: 'text-signal-safe' },
-        ].map((s, i) => (
-          <div key={i} className="card !p-3 text-center">
-            <div className="text-xs text-slate-muted mb-1">{s.label}</div>
-            <div className={`text-lg font-bold ${s.color}`}>{s.value}</div>
-            <div className="text-xs text-slate-muted mt-0.5">{s.sub}</div>
-          </div>
-        ))}
-      </div>
+        {/* ========================================================= */}
+        {/* 💻 RIGHT PANE: TERMINAL INTELLIGENCE & TRADING (Col Span 4) */}
+        {/* ========================================================= */}
+        <div className="xl:col-span-4 flex flex-col gap-4">
+          
+          {/* INTEL PANEL */}
+          <div className="bg-[#0b0e14] border border-[#1e293b] rounded-lg p-5">
+            <h2 className="text-[10px] font-bold tracking-widest text-slate-500 mb-4 flex items-center gap-2"><div className="w-1.5 h-1.5 bg-[#00d4ff] rounded-full animate-pulse"></div> REAL-TIME INTEL</h2>
+            
+            <div className="flex justify-between items-end mb-6">
+              <div>
+                <div className="text-[10px] font-mono text-slate-400 mb-1">DISPARITY SPREAD</div>
+                <div className="text-5xl font-black font-mono tracking-tighter" style={{ color: getDisparityHex(rate) }}>
+                  {rate.toFixed(1)}<span className="text-xl text-slate-600">%</span>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-[10px] font-mono text-slate-400 mb-1">Z-SCORE</div>
+                <div className={`text-2xl font-black font-mono ${Math.abs(stats.zScore) > 2 ? 'text-[#ff4757]' : 'text-white'}`}>{stats.zScore > 0 ? '+' : ''}{stats.zScore}</div>
+              </div>
+            </div>
 
-      {/* CHART */}
-      <div className="card">
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-          <div className="flex gap-1">
-            {(['disparity', 'price'] as const).map(t => (
-              <button key={t} onClick={() => setChartType(t)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${chartType === t ? 'bg-cyan-accent/20 text-cyan-accent' : 'text-slate-muted hover:text-slate-text'}`}
-                style={{ border: 'none', cursor: 'pointer' }}>
-                {t === 'disparity' ? '📊 괴리율' : '💹 주가 비교'}
-              </button>
+            <div className="grid grid-cols-2 gap-px bg-[#1e293b] border border-[#1e293b] rounded-md overflow-hidden font-mono text-[11px] mb-4">
+              <div className="bg-[#0b0e14] p-2 flex justify-between"><span className="text-slate-500">AVG({periodLabels[chartPeriod]})</span><span className="text-white font-bold">{stats.avg}%</span></div>
+              <div className="bg-[#0b0e14] p-2 flex justify-between"><span className="text-slate-500">MOMENTUM</span><span className={stats.momentum > 0 ? 'text-[#ff4757]' : 'text-[#3742fa]'}>{stats.momentum}%p</span></div>
+              <div className="bg-[#0b0e14] p-2 flex justify-between"><span className="text-slate-500">RSI(14)</span><span style={{ color: getRsiColor(stats.rsi) }} className="font-bold">{stats.rsi.toFixed(1)}</span></div>
+              <div className="bg-[#0b0e14] p-2 flex justify-between"><span className="text-slate-500">REV. ETA</span><span className="text-white">{stats.avgReversionDays}D</span></div>
+            </div>
+
+            <div className="bg-[#151b2b] border border-[#1e293b] p-3 rounded-md text-[11px]">
+              <div className="flex items-center gap-2 mb-1.5"><span className="text-slate-400 font-mono">SYS.RECOM:</span><span className={`font-bold ${bbSignal?.signal !== 'hold' ? 'text-[#ff4757]' : 'text-slate-300'}`}>{bbSignal?.signal === 'buy_preferred' ? 'EXECUTE SHORT COMM / LONG PREF' : bbSignal?.signal === 'buy_common' ? 'EXECUTE LONG COMM / SHORT PREF' : 'MAINTAIN CURRENT POSITION'}</span></div>
+              <div className="text-slate-500 font-mono leading-tight">Statistical extremity reached. Reversion to mean heavily favored based on {periodLabels[chartPeriod]} rolling data matrix.</div>
+            </div>
+          </div>
+
+          {/* QUOTE PANEL */}
+          <div className="grid grid-cols-2 gap-4">
+            {[
+              { t: 'COMMON', p: price.commonPrice, c: price.commonChange, y: price.commonYield, color: '#ff4757' },
+              { t: 'PREFERRED', p: price.preferredPrice, c: price.preferredChange, y: price.preferredYield, color: '#3742fa' }
+            ].map(s => (
+              <div key={s.t} className="bg-[#0b0e14] border border-[#1e293b] rounded-lg p-3 font-mono border-t-2" style={{ borderTopColor: s.color }}>
+                <div className="text-[10px] text-slate-500 mb-1">{s.t} QUOTE</div>
+                <div className="text-lg font-bold text-white mb-0.5">{formatNumber(s.p)}</div>
+                <div className={`text-[10px] font-bold ${s.c >= 0 ? 'text-[#ff4757]' : 'text-[#3742fa]'}`}>{s.c > 0 ? '+' : ''}{formatPercent(s.c)}</div>
+                {s.y && <div className="mt-2 text-[9px] text-slate-500">YLD: <span className="text-white">{s.y.toFixed(2)}%</span></div>}
+              </div>
             ))}
           </div>
-          <div className="flex items-center gap-2">
-            {historyLoading && <span className="text-xs text-slate-muted animate-pulse">데이터 로딩...</span>}
-            <div className="flex gap-1">
-              {(Object.keys(periodDays) as Period[]).map(p => (
-                <button key={p} onClick={() => setChartPeriod(p)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${chartPeriod === p ? 'bg-cyan-accent/20 text-cyan-accent' : 'text-slate-muted hover:text-slate-text'}`}
-                  style={{ border: 'none', cursor: 'pointer' }}>
-                  {periodLabels[p]}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
 
-        {chartData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={340}>
-            {chartType === 'disparity' ? (
-              <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-                <defs>
-                  <linearGradient id="disparityGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#00d4ff" stopOpacity={0.25} />
-                    <stop offset="95%" stopColor="#00d4ff" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#8892b0' }} tickFormatter={v => v.slice(5)} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10, fill: '#8892b0' }} tickFormatter={v => `${v}%`} domain={['auto', 'auto']} />
-                <Tooltip
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload?.[0]) return null;
-                    const d = payload[0].payload;
-                    return (
-                      <div style={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: '10px 14px', fontSize: 12 }}>
-                        <div style={{ color: '#8892b0', marginBottom: 6 }}>{label}</div>
-                        <div style={{ color: '#00d4ff', fontWeight: 700, fontSize: 16, marginBottom: 6 }}>괴리율 : {d.disparityRate.toFixed(2)}%</div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 3 }}>
-                          <span style={{ color: '#ff4757' }}>삼성전자</span>
-                          <span style={{ color: '#e6f1ff', fontWeight: 600 }}>{formatNumber(d.commonPrice)}원</span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 3 }}>
-                          <span style={{ color: '#3742fa' }}>삼성전자우</span>
-                          <span style={{ color: '#e6f1ff', fontWeight: 600 }}>{formatNumber(d.preferredPrice)}원</span>
-                        </div>
-                        <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 4, marginTop: 4, display: 'flex', justifyContent: 'space-between', gap: 16 }}>
-                          <span style={{ color: '#8892b0' }}>가격차</span>
-                          <span style={{ color: '#ffa502', fontWeight: 600 }}>{formatNumber(d.commonPrice - d.preferredPrice)}원</span>
-                        </div>
-                      </div>
-                    );
-                  }}
-                />
-                <ReferenceLine y={stats.avg} stroke="#ffa502" strokeDasharray="5 5" strokeWidth={1} label={{ value: `평균 ${stats.avg}%`, position: 'right', fill: '#ffa502', fontSize: 10 }} />
-                <Area type="monotone" dataKey="disparityRate" stroke="#00d4ff" strokeWidth={2} fill="url(#disparityGrad)" />
-              </AreaChart>
-            ) : (
-              <ComposedChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#8892b0' }} tickFormatter={v => v.slice(5)} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10, fill: '#8892b0' }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} domain={['auto', 'auto']} />
-                <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, fontSize: 12 }} formatter={(v: number, name: string) => [formatCurrency(v), name === 'commonPrice' ? '보통주' : '우선주']} />
-                <Line type="monotone" dataKey="commonPrice" stroke="#ff4757" strokeWidth={2} dot={false} name="commonPrice" />
-                <Line type="monotone" dataKey="preferredPrice" stroke="#3742fa" strokeWidth={2} dot={false} name="preferredPrice" />
-              </ComposedChart>
-            )}
-          </ResponsiveContainer>
-        ) : (
-          <div className="h-[340px] flex items-center justify-center text-slate-muted">차트 데이터를 불러오는 중...</div>
-        )}
-      </div>
-
-      {/* SIMULATOR + TRADE */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card">
-          <h2 className="text-lg font-semibold mb-4">⚡ 스위칭 시뮬레이션</h2>
-          <div className="flex gap-3 mb-4">
-            <div className="flex-1">
-              <label className="text-xs text-slate-muted block mb-1">보유 수량</label>
-              <input type="number" value={simQty} onChange={e => setSimQty(Math.max(1, +e.target.value))} className="w-full" min={1} />
+          {/* HTS ORDER TICKET */}
+          <div className="bg-[#0b0e14] border border-[#1e293b] rounded-lg p-0 flex flex-col flex-1">
+            <div className="bg-[#151b2b] p-2 border-b border-[#1e293b] flex gap-2">
+              <button className={`flex-1 py-1 text-xs font-bold font-mono rounded ${orderType === 'buy' ? 'bg-[#ff4757] text-white' : 'bg-transparent text-slate-500 hover:bg-[#1e293b]'}`} onClick={() => setOrderType('buy')}>BUY</button>
+              <button className={`flex-1 py-1 text-xs font-bold font-mono rounded ${orderType === 'sell' ? 'bg-[#3742fa] text-white' : 'bg-transparent text-slate-500 hover:bg-[#1e293b]'}`} onClick={() => setOrderType('sell')}>SELL</button>
             </div>
-            <div className="flex-1">
-              <label className="text-xs text-slate-muted block mb-1">방향</label>
-              <select value={simDir} onChange={e => setSimDir(e.target.value as 'c2p' | 'p2c')} className="w-full">
-                <option value="c2p">보통주 → 우선주</option>
-                <option value="p2c">우선주 → 보통주</option>
-              </select>
-            </div>
-          </div>
-          {simResult && (
-            <div className="bg-navy-900/60 rounded-xl p-4 space-y-2.5">
-              <div className="flex justify-between text-sm"><span className="text-slate-muted">매도 금액</span><span>{formatCurrency(simResult.grossProceeds)}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-slate-muted">수수료 (매도+매수)</span><span className="text-signal-warning">-{formatCurrency(Math.round(simResult.sellCommission + simResult.buyCommission))}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-slate-muted">거래세</span><span className="text-signal-warning">-{formatCurrency(Math.round(simResult.sellTax))}</span></div>
-              <div className="border-t border-white/10 pt-2.5 flex justify-between text-sm"><span className="text-slate-muted">총 비용</span><span className="text-signal-danger font-medium">-{formatCurrency(Math.round(simResult.totalCost))}</span></div>
-              <div className="border-t border-white/10 pt-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-muted">예상 보유 주식</span>
-                  <span className="text-3xl font-black text-cyan-accent">{formatNumber(simResult.newQuantity)}<span className="text-base font-normal text-slate-muted">주</span></span>
-                </div>
-                <div className="flex justify-between items-center mt-1">
-                  <span className="text-xs text-slate-muted">변동</span>
-                  <span className={`text-sm font-bold ${simResult.quantityDiff > 0 ? 'text-signal-safe' : 'text-signal-danger'}`}>
-                    {simResult.quantityDiff > 0 ? '+' : ''}{simResult.quantityDiff}주 ({simResult.quantityDiff > 0 ? '+' : ''}{((simResult.quantityDiff / simQty) * 100).toFixed(1)}%)
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">📝 매매 기록</h2>
-            <button className="btn-primary text-sm" onClick={() => setShowTradeForm(!showTradeForm)}>{showTradeForm ? '취소' : '+ 기록'}</button>
-          </div>
-          {showTradeForm && (
-            <div className="bg-navy-900/60 rounded-xl p-3 mb-4 grid grid-cols-2 gap-2 animate-fade-in">
-              <select value={tradeForm.type} onChange={e => setTradeForm({ ...tradeForm, type: e.target.value as 'common' | 'preferred' })} className="w-full">
-                <option value="common">보통주</option><option value="preferred">우선주</option>
-              </select>
-              <select value={tradeForm.action} onChange={e => setTradeForm({ ...tradeForm, action: e.target.value as 'buy' | 'sell' })} className="w-full">
-                <option value="buy">매수</option><option value="sell">매도</option>
-              </select>
-              <input type="number" placeholder="수량" value={tradeForm.quantity} onChange={e => setTradeForm({ ...tradeForm, quantity: e.target.value })} className="w-full" />
-              <div className="flex gap-2">
-                <input type="number" placeholder="가격" value={tradeForm.price} onChange={e => setTradeForm({ ...tradeForm, price: e.target.value })} className="w-full" />
-                <button className="btn-primary text-sm whitespace-nowrap" onClick={handleAddTrade}>저장</button>
-              </div>
-            </div>
-          )}
-          {samsungTrades.length === 0 ? (
-            <div className="text-center py-8 text-slate-muted">
-              <p className="text-3xl mb-2">📋</p>
-              <p className="text-sm">매매 기록이 없습니다</p>
-            </div>
-          ) : (
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {samsungTrades.map(t => (
-                <div key={t.id} className="flex items-center justify-between p-2.5 bg-navy-900/40 rounded-lg text-sm">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-slate-muted">{formatDate(t.date)}</span>
-                    <span className={`font-medium ${t.action === 'buy' ? 'text-stock-up' : 'text-stock-down'}`}>{t.action === 'buy' ? '매수' : '매도'}</span>
-                    <span className="text-slate-muted">{t.type === 'common' ? '보통주' : '우선주'}</span>
+            
+            <div className="p-4 flex-1 flex flex-col">
+              {!showChecklist ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <div>
+                      <label className="text-[9px] text-slate-500 font-mono mb-1 block">ASSET</label>
+                      <select value={orderTarget} onChange={e => setOrderTarget(e.target.value as any)} className="w-full bg-[#151b2b] border border-[#1e293b] rounded p-2 text-xs text-white font-mono outline-none focus:border-[#2563eb] appearance-none cursor-pointer">
+                        <option value="common">005930 (COMM)</option>
+                        <option value="preferred">005935 (PREF)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-slate-500 font-mono mb-1 block">TYPE</label>
+                      <select disabled className="w-full bg-[#151b2b] border border-[#1e293b] rounded p-2 text-xs text-slate-400 font-mono outline-none appearance-none cursor-not-allowed">
+                        <option>LIMIT (지정가)</option>
+                      </select>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span>{formatNumber(t.quantity)}주 · {formatNumber(t.price)}원</span>
-                    <button onClick={() => removeTrade(t.id)} className="text-slate-muted hover:text-signal-danger text-xs transition-colors" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}>✕</button>
+                  
+                  <div className="space-y-3 mb-4 flex-1">
+                    <div className="flex bg-[#151b2b] border border-[#1e293b] rounded overflow-hidden focus-within:border-[#2563eb]">
+                      <span className="p-2 text-xs text-slate-500 font-mono border-r border-[#1e293b] bg-[#0b0e14] w-12 text-center">QTY</span>
+                      <input type="number" placeholder="0" value={orderQty} onChange={e => setOrderQty(e.target.value)} className="w-full bg-transparent p-2 text-right text-sm font-mono text-white outline-none" />
+                    </div>
+                    <div className="flex bg-[#151b2b] border border-[#1e293b] rounded overflow-hidden focus-within:border-[#2563eb]">
+                      <span className="p-2 text-xs text-slate-500 font-mono border-r border-[#1e293b] bg-[#0b0e14] w-12 text-center">PRC</span>
+                      <input type="number" placeholder={orderTarget === 'common' ? price.commonPrice.toString() : price.preferredPrice.toString()} value={orderPrice} onChange={e => setOrderPrice(e.target.value)} className="w-full bg-transparent p-2 text-right text-sm font-mono text-white outline-none" />
+                    </div>
+                  </div>
+
+                  {/* Simulator Quick Action */}
+                  {orderQty && orderPrice && orderTarget === 'preferred' && orderType === 'buy' && (
+                    <div className="mb-4 p-2 border border-dashed border-[#00d4ff]/30 bg-[#00d4ff]/5 rounded text-[10px] font-mono text-[#00d4ff]">
+                      SIM: Switching {orderQty} shares of COMM to PREF yields approx <span className="font-bold text-white">+{Math.floor(+orderQty * (price.commonPrice / price.preferredPrice) - +orderQty)} shs</span> (pre-tax).
+                    </div>
+                  )}
+
+                  <button 
+                    className={`w-full py-3 rounded font-bold font-mono text-white shadow-lg transition-transform active:scale-95 disabled:opacity-50 ${orderType === 'buy' ? 'bg-[#ff4757] hover:bg-[#ff6b81] shadow-[#ff4757]/20' : 'bg-[#3742fa] hover:bg-[#5352ed] shadow-[#3742fa]/20'}`}
+                    onClick={handleOrderSubmit}
+                    disabled={!orderQty || !orderPrice}
+                  >
+                    SUBMIT {orderType.toUpperCase()} ORDER
+                  </button>
+                </>
+              ) : (
+                <div className="flex-1 flex flex-col justify-center animate-fade-in">
+                  <div className="text-[10px] font-mono text-[#ffa502] mb-3">! PRE-TRADE RISK COMPLIANCE CHECK</div>
+                  <div className="space-y-3 mb-6">
+                    {[
+                      `Disparity Rate (${rate}%) exceeds target threshold`,
+                      `Split-order execution strategy applied`,
+                      `Net-profit margin verified after 0.18% tax`,
+                      `Macro/Micro news events reviewed`
+                    ].map((text, idx) => (
+                      <label key={idx} className="flex items-start gap-2 cursor-pointer">
+                        <input type="checkbox" className="mt-0.5 accent-[#ffa502] w-3 h-3" checked={checklistData[idx]} onChange={e => { const n = [...checklistData]; n[idx] = e.target.checked; setChecklistData(n); }} />
+                        <span className={`text-[10px] font-mono leading-tight ${checklistData[idx] ? 'text-slate-600 line-through' : 'text-slate-300'}`}>{text}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="flex gap-2 mt-auto">
+                    <button className="flex-1 py-2 bg-[#ffa502] text-[#0b0e14] font-bold font-mono text-xs rounded disabled:opacity-30" onClick={handleOrderSubmit} disabled={checklistData.filter(Boolean).length < 3}>CONFIRM</button>
+                    <button className="px-3 py-2 bg-[#1e293b] text-white font-mono text-xs rounded" onClick={() => setShowChecklist(false)}>CANCEL</button>
                   </div>
                 </div>
-              ))}
+              )}
             </div>
-          )}
+          </div>
+
         </div>
       </div>
     </div>

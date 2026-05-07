@@ -10,6 +10,10 @@ export interface StockPrice {
   preferredPrice: number;
   commonChange: number;
   preferredChange: number;
+  commonYield?: number;
+  preferredYield?: number;
+  yieldGap?: number;
+  dividendDDay?: number;
 }
 
 export interface Holding {
@@ -46,7 +50,18 @@ export interface PriceHistory {
   date: string;
   commonPrice: number;
   preferredPrice: number;
+  commonVolume?: number;
+  preferredVolume?: number;
+  commonForeignRate?: number;
+  preferredForeignRate?: number;
   disparityRate: number;
+  bb_upper?: number;
+  bb_middle?: number;
+  bb_lower?: number;
+  ma5?: number;
+  ma20?: number;
+  ma60?: number;
+  rsi?: number;
 }
 
 export type SignalType = 'buy_preferred' | 'buy_common' | 'hold';

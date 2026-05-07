@@ -138,7 +138,7 @@ export const DashboardPage: React.FC = () => {
     return <div className="flex h-screen items-center justify-center bg-[#050505] text-[#00d4ff] font-mono text-xs animate-pulse">CONNECTING TO EXCHANGE...</div>;
   }
 
-  const riskLevel = stats.zScore > 2 ? 'EXTREME (SELL COMM/BUY PREF)' : stats.zScore < -1.5 ? 'WARNING (BUY COMM/SELL PREF)' : stats.zScore > 1 ? 'ELEVATED' : 'NEUTRAL';
+  const riskLevel = stats.zScore > 2 ? '극단적 (보통주 매도/우선주 매수)' : stats.zScore < -1.5 ? '경고 (보통주 매수/우선주 매도)' : stats.zScore > 1 ? '상승 국면' : '중립';
   const riskColor = stats.zScore > 2 ? 'text-[#ff4757]' : stats.zScore < -1.5 ? 'text-[#ffa502]' : stats.zScore > 1 ? 'text-[#00d4ff]' : 'text-slate-400';
 
   return (
@@ -146,15 +146,15 @@ export const DashboardPage: React.FC = () => {
       {/* 🖥️ TOP STATUS BAR (HTS Style) */}
       <div className="bg-[#0b0e14] border-b border-[#1e293b] px-4 py-1.5 flex items-center justify-between text-[10px] font-mono tracking-wider sticky top-0 z-50 shadow-md">
         <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1.5 font-bold text-white"><span className={`w-1.5 h-1.5 rounded-full ${sseConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span> PAIR TRADING TERMINAL v3.0</span>
-          <span className="text-[#00d4ff]">KRX: 005930 / 005935</span>
-          <span className="hidden sm:inline">CORR: {stats.correlation.toFixed(4)}</span>
-          <span className="hidden sm:inline">ROC(5): {stats.momentum > 0 ? '+' : ''}{stats.momentum}%p</span>
+          <span className="flex items-center gap-1.5 font-bold text-white"><span className={`w-1.5 h-1.5 rounded-full ${sseConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span> 페어 트레이딩 터미널 v3.0</span>
+          <span className="text-[#00d4ff]">종목: 005930 / 005935</span>
+          <span className="hidden sm:inline">상관계수: {stats.correlation.toFixed(4)}</span>
+          <span className="hidden sm:inline">모멘텀(5일): {stats.momentum > 0 ? '+' : ''}{stats.momentum}%p</span>
         </div>
         <div className="flex items-center gap-4 text-slate-400">
           <span className={riskColor}>{riskLevel}</span>
-          <span>SYS TIME: {new Date().toLocaleTimeString()}</span>
-          {lastUpdated && <button onClick={refreshPrices} className="hover:text-white transition-colors">🔄 SYNC</button>}
+          <span>시스템 시간: {new Date().toLocaleTimeString()}</span>
+          {lastUpdated && <button onClick={refreshPrices} className="hover:text-white transition-colors">🔄 동기화</button>}
         </div>
       </div>
 
@@ -172,17 +172,17 @@ export const DashboardPage: React.FC = () => {
                 <button key={p} onClick={() => setChartPeriod(p)} className={`px-4 py-1 text-[11px] font-bold rounded transition-colors ${chartPeriod === p ? 'bg-[#2563eb] text-white' : 'text-slate-400 hover:text-slate-200'}`}>{p}</button>
               ))}
             </div>
-            {historyLoading && <span className="text-[10px] text-[#00d4ff] animate-pulse font-mono">FETCHING HISTORICAL DATA...</span>}
+            {historyLoading && <span className="text-[10px] text-[#00d4ff] animate-pulse font-mono">과거 데이터 불러오는 중...</span>}
             <div className="flex gap-3 text-[10px] font-mono pr-2">
-              <span className="text-[#00d4ff] flex items-center gap-1"><div className="w-2 h-0.5 bg-[#00d4ff]"></div> DISPARITY</span>
-              <span className="text-[#ff6b81] flex items-center gap-1"><div className="w-2 h-0.5 bg-[#ff6b81]"></div> BB UPPER</span>
-              <span className="text-[#7bed9f] flex items-center gap-1"><div className="w-2 h-0.5 bg-[#7bed9f]"></div> BB LOWER</span>
+              <span className="text-[#00d4ff] flex items-center gap-1"><div className="w-2 h-0.5 bg-[#00d4ff]"></div> 괴리율</span>
+              <span className="text-[#ff6b81] flex items-center gap-1"><div className="w-2 h-0.5 bg-[#ff6b81]"></div> BB 상단</span>
+              <span className="text-[#7bed9f] flex items-center gap-1"><div className="w-2 h-0.5 bg-[#7bed9f]"></div> BB 하단</span>
             </div>
           </div>
 
           {/* MAIN CHART 1: DISPARITY & BB */}
           <div className="bg-[#0b0e14] border border-[#1e293b] rounded-lg p-3 h-[400px] relative">
-            <div className="absolute top-4 left-4 z-10 font-mono text-xs text-slate-400 font-bold opacity-50">DISPARITY & B-BANDS</div>
+            <div className="absolute top-4 left-4 z-10 font-mono text-xs text-slate-400 font-bold opacity-50">괴리율 & 볼린저 밴드</div>
             {chartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
@@ -202,15 +202,15 @@ export const DashboardPage: React.FC = () => {
                   <Line type="monotone" dataKey="disparityRate" stroke="none" dot={<CustomDot />} />
                 </ComposedChart>
               </ResponsiveContainer>
-            ) : <div className="h-full flex items-center justify-center text-slate-600 font-mono text-xs">NO DATA</div>}
+            ) : <div className="h-full flex items-center justify-center text-slate-600 font-mono text-xs">데이터 없음</div>}
           </div>
 
           {/* MAIN CHART 2: PRICE & VOLUME OVERLAY */}
           <div className="bg-[#0b0e14] border border-[#1e293b] rounded-lg p-3 h-[250px] relative">
-            <div className="absolute top-4 left-4 z-10 font-mono text-xs text-slate-400 font-bold opacity-50">PRICE & VOLUME DEPTH</div>
+            <div className="absolute top-4 left-4 z-10 font-mono text-xs text-slate-400 font-bold opacity-50">주가 & 거래량 뎁스</div>
             <div className="absolute top-4 right-4 z-10 flex gap-3 text-[9px] font-mono text-slate-500">
-              <span className="flex items-center gap-1"><div className="w-2 h-0.5 bg-[#ff4757]"></div> COMM P/V</span>
-              <span className="flex items-center gap-1"><div className="w-2 h-0.5 bg-[#3742fa]"></div> PREF P/V</span>
+              <span className="flex items-center gap-1"><div className="w-2 h-0.5 bg-[#ff4757]"></div> 보통주 주가/거래량</span>
+              <span className="flex items-center gap-1"><div className="w-2 h-0.5 bg-[#3742fa]"></div> 우선주 주가/거래량</span>
             </div>
             {chartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
@@ -238,26 +238,26 @@ export const DashboardPage: React.FC = () => {
           
           {/* INTEL PANEL */}
           <div className="bg-[#0b0e14] border border-[#1e293b] rounded-lg p-5">
-            <h2 className="text-[10px] font-bold tracking-widest text-slate-500 mb-4 flex items-center gap-2"><div className="w-1.5 h-1.5 bg-[#00d4ff] rounded-full animate-pulse"></div> REAL-TIME INTEL</h2>
+            <h2 className="text-[10px] font-bold tracking-widest text-slate-500 mb-4 flex items-center gap-2"><div className="w-1.5 h-1.5 bg-[#00d4ff] rounded-full animate-pulse"></div> 실시간 인텔리전스</h2>
             
             <div className="flex justify-between items-end mb-6">
               <div>
-                <div className="text-[10px] font-mono text-slate-400 mb-1">DISPARITY SPREAD</div>
+                <div className="text-[10px] font-mono text-slate-400 mb-1">괴리율 스프레드</div>
                 <div className="text-5xl font-black font-mono tracking-tighter" style={{ color: getDisparityHex(rate) }}>
                   {rate.toFixed(1)}<span className="text-xl text-slate-600">%</span>
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-[10px] font-mono text-slate-400 mb-1">Z-SCORE</div>
+                <div className="text-[10px] font-mono text-slate-400 mb-1">Z-스코어 (표준편차)</div>
                 <div className={`text-2xl font-black font-mono ${Math.abs(stats.zScore) > 2 ? 'text-[#ff4757]' : 'text-white'}`}>{stats.zScore > 0 ? '+' : ''}{stats.zScore}</div>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-px bg-[#1e293b] border border-[#1e293b] rounded-md overflow-hidden font-mono text-[11px] mb-4">
-              <div className="bg-[#0b0e14] p-2 flex justify-between"><span className="text-slate-500">AVG({periodLabels[chartPeriod]})</span><span className="text-white font-bold">{stats.avg}%</span></div>
-              <div className="bg-[#0b0e14] p-2 flex justify-between"><span className="text-slate-500">MOMENTUM</span><span className={stats.momentum > 0 ? 'text-[#ff4757]' : 'text-[#3742fa]'}>{stats.momentum}%p</span></div>
+              <div className="bg-[#0b0e14] p-2 flex justify-between"><span className="text-slate-500">평균({periodLabels[chartPeriod]})</span><span className="text-white font-bold">{stats.avg}%</span></div>
+              <div className="bg-[#0b0e14] p-2 flex justify-between"><span className="text-slate-500">모멘텀</span><span className={stats.momentum > 0 ? 'text-[#ff4757]' : 'text-[#3742fa]'}>{stats.momentum}%p</span></div>
               <div className="bg-[#0b0e14] p-2 flex justify-between"><span className="text-slate-500">RSI(14)</span><span style={{ color: getRsiColor(stats.rsi) }} className="font-bold">{stats.rsi.toFixed(1)}</span></div>
-              <div className="bg-[#0b0e14] p-2 flex justify-between"><span className="text-slate-500">REV. ETA</span><span className="text-white">{stats.avgReversionDays}D</span></div>
+              <div className="bg-[#0b0e14] p-2 flex justify-between"><span className="text-slate-500">회귀 예상</span><span className="text-white">{stats.avgReversionDays}일</span></div>
             </div>
 
             <div className="bg-[#151b2b] border border-[#1e293b] p-3 rounded-md text-[11px]">
@@ -273,10 +273,10 @@ export const DashboardPage: React.FC = () => {
               { t: 'PREFERRED', p: price.preferredPrice, c: price.preferredChange, y: price.preferredYield, color: '#3742fa' }
             ].map(s => (
               <div key={s.t} className="bg-[#0b0e14] border border-[#1e293b] rounded-lg p-3 font-mono border-t-2" style={{ borderTopColor: s.color }}>
-                <div className="text-[10px] text-slate-500 mb-1">{s.t} QUOTE</div>
+                <div className="text-[10px] text-slate-500 mb-1">{s.t === 'COMMON' ? '보통주 시세' : '우선주 시세'}</div>
                 <div className="text-lg font-bold text-white mb-0.5">{formatNumber(s.p)}</div>
                 <div className={`text-[10px] font-bold ${s.c >= 0 ? 'text-[#ff4757]' : 'text-[#3742fa]'}`}>{s.c > 0 ? '+' : ''}{formatPercent(s.c)}</div>
-                {s.y && <div className="mt-2 text-[9px] text-slate-500">YLD: <span className="text-white">{s.y.toFixed(2)}%</span></div>}
+                {s.y && <div className="mt-2 text-[9px] text-slate-500">수익률: <span className="text-white">{s.y.toFixed(2)}%</span></div>}
               </div>
             ))}
           </div>
@@ -284,8 +284,8 @@ export const DashboardPage: React.FC = () => {
           {/* HTS ORDER TICKET */}
           <div className="bg-[#0b0e14] border border-[#1e293b] rounded-lg p-0 flex flex-col flex-1">
             <div className="bg-[#151b2b] p-2 border-b border-[#1e293b] flex gap-2">
-              <button className={`flex-1 py-1 text-xs font-bold font-mono rounded ${orderType === 'buy' ? 'bg-[#ff4757] text-white' : 'bg-transparent text-slate-500 hover:bg-[#1e293b]'}`} onClick={() => setOrderType('buy')}>BUY</button>
-              <button className={`flex-1 py-1 text-xs font-bold font-mono rounded ${orderType === 'sell' ? 'bg-[#3742fa] text-white' : 'bg-transparent text-slate-500 hover:bg-[#1e293b]'}`} onClick={() => setOrderType('sell')}>SELL</button>
+              <button className={`flex-1 py-1 text-xs font-bold font-mono rounded ${orderType === 'buy' ? 'bg-[#ff4757] text-white' : 'bg-transparent text-slate-500 hover:bg-[#1e293b]'}`} onClick={() => setOrderType('buy')}>매수</button>
+              <button className={`flex-1 py-1 text-xs font-bold font-mono rounded ${orderType === 'sell' ? 'bg-[#3742fa] text-white' : 'bg-transparent text-slate-500 hover:bg-[#1e293b]'}`} onClick={() => setOrderType('sell')}>매도</button>
             </div>
             
             <div className="p-4 flex-1 flex flex-col">
@@ -293,27 +293,27 @@ export const DashboardPage: React.FC = () => {
                 <>
                   <div className="grid grid-cols-2 gap-3 mb-4">
                     <div>
-                      <label className="text-[9px] text-slate-500 font-mono mb-1 block">ASSET</label>
+                      <label className="text-[9px] text-slate-500 font-mono mb-1 block">종목</label>
                       <select value={orderTarget} onChange={e => setOrderTarget(e.target.value as any)} className="w-full bg-[#151b2b] border border-[#1e293b] rounded p-2 text-xs text-white font-mono outline-none focus:border-[#2563eb] appearance-none cursor-pointer">
-                        <option value="common">005930 (COMM)</option>
-                        <option value="preferred">005935 (PREF)</option>
+                        <option value="common">005930 (보통주)</option>
+                        <option value="preferred">005935 (우선주)</option>
                       </select>
                     </div>
                     <div>
-                      <label className="text-[9px] text-slate-500 font-mono mb-1 block">TYPE</label>
+                      <label className="text-[9px] text-slate-500 font-mono mb-1 block">유형</label>
                       <select disabled className="w-full bg-[#151b2b] border border-[#1e293b] rounded p-2 text-xs text-slate-400 font-mono outline-none appearance-none cursor-not-allowed">
-                        <option>LIMIT (지정가)</option>
+                        <option>지정가 (LIMIT)</option>
                       </select>
                     </div>
                   </div>
                   
                   <div className="space-y-3 mb-4 flex-1">
                     <div className="flex bg-[#151b2b] border border-[#1e293b] rounded overflow-hidden focus-within:border-[#2563eb]">
-                      <span className="p-2 text-xs text-slate-500 font-mono border-r border-[#1e293b] bg-[#0b0e14] w-12 text-center">QTY</span>
+                      <span className="p-2 text-xs text-slate-500 font-mono border-r border-[#1e293b] bg-[#0b0e14] w-12 text-center">수량</span>
                       <input type="number" placeholder="0" value={orderQty} onChange={e => setOrderQty(e.target.value)} className="w-full bg-transparent p-2 text-right text-sm font-mono text-white outline-none" />
                     </div>
                     <div className="flex bg-[#151b2b] border border-[#1e293b] rounded overflow-hidden focus-within:border-[#2563eb]">
-                      <span className="p-2 text-xs text-slate-500 font-mono border-r border-[#1e293b] bg-[#0b0e14] w-12 text-center">PRC</span>
+                      <span className="p-2 text-xs text-slate-500 font-mono border-r border-[#1e293b] bg-[#0b0e14] w-12 text-center">단가</span>
                       <input type="number" placeholder={orderTarget === 'common' ? price.commonPrice.toString() : price.preferredPrice.toString()} value={orderPrice} onChange={e => setOrderPrice(e.target.value)} className="w-full bg-transparent p-2 text-right text-sm font-mono text-white outline-none" />
                     </div>
                   </div>
@@ -321,7 +321,7 @@ export const DashboardPage: React.FC = () => {
                   {/* Simulator Quick Action */}
                   {orderQty && orderPrice && orderTarget === 'preferred' && orderType === 'buy' && (
                     <div className="mb-4 p-2 border border-dashed border-[#00d4ff]/30 bg-[#00d4ff]/5 rounded text-[10px] font-mono text-[#00d4ff]">
-                      SIM: Switching {orderQty} shares of COMM to PREF yields approx <span className="font-bold text-white">+{Math.floor(+orderQty * (price.commonPrice / price.preferredPrice) - +orderQty)} shs</span> (pre-tax).
+                      시뮬레이션: 보통주 {orderQty}주를 우선주로 스위칭 시 세전 약 <span className="font-bold text-white">+{Math.floor(+orderQty * (price.commonPrice / price.preferredPrice) - +orderQty)}주의 수량 증가</span>가 예상됩니다.
                     </div>
                   )}
 
@@ -330,18 +330,18 @@ export const DashboardPage: React.FC = () => {
                     onClick={handleOrderSubmit}
                     disabled={!orderQty || !orderPrice}
                   >
-                    SUBMIT {orderType.toUpperCase()} ORDER
+                    {orderType === 'buy' ? '매수' : '매도'} 주문 전송
                   </button>
                 </>
               ) : (
                 <div className="flex-1 flex flex-col justify-center animate-fade-in">
-                  <div className="text-[10px] font-mono text-[#ffa502] mb-3">! PRE-TRADE RISK COMPLIANCE CHECK</div>
+                  <div className="text-[10px] font-mono text-[#ffa502] mb-3">! 매매 전 리스크 점검 (필수)</div>
                   <div className="space-y-3 mb-6">
                     {[
-                      `Disparity Rate (${rate}%) exceeds target threshold`,
-                      `Split-order execution strategy applied`,
-                      `Net-profit margin verified after 0.18% tax`,
-                      `Macro/Micro news events reviewed`
+                      `현재 괴리율(${rate}%)이 목표 임계치를 초과함`,
+                      `분할 매수/매도 전략을 적용함`,
+                      `거래세 0.18% 차감 후 순수익 마진 확인 완료`,
+                      `관련 거시경제 및 개별 종목 뉴스 확인 완료`
                     ].map((text, idx) => (
                       <label key={idx} className="flex items-start gap-2 cursor-pointer">
                         <input type="checkbox" className="mt-0.5 accent-[#ffa502] w-3 h-3" checked={checklistData[idx]} onChange={e => { const n = [...checklistData]; n[idx] = e.target.checked; setChecklistData(n); }} />
@@ -350,8 +350,8 @@ export const DashboardPage: React.FC = () => {
                     ))}
                   </div>
                   <div className="flex gap-2 mt-auto">
-                    <button className="flex-1 py-2 bg-[#ffa502] text-[#0b0e14] font-bold font-mono text-xs rounded disabled:opacity-30" onClick={handleOrderSubmit} disabled={checklistData.filter(Boolean).length < 3}>CONFIRM</button>
-                    <button className="px-3 py-2 bg-[#1e293b] text-white font-mono text-xs rounded" onClick={() => setShowChecklist(false)}>CANCEL</button>
+                    <button className="flex-1 py-2 bg-[#ffa502] text-[#0b0e14] font-bold font-mono text-xs rounded disabled:opacity-30" onClick={handleOrderSubmit} disabled={checklistData.filter(Boolean).length < 3}>확정</button>
+                    <button className="px-3 py-2 bg-[#1e293b] text-white font-mono text-xs rounded" onClick={() => setShowChecklist(false)}>취소</button>
                   </div>
                 </div>
               )}

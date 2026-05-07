@@ -10,7 +10,7 @@ const periodDays: Record<Period, number> = { '1M': 22, '3M': 66, '6M': 132, '1Y'
 const periodLabels: Record<Period, string> = { '1M': '1개월', '3M': '3개월', '6M': '6개월', '1Y': '1년' };
 
 export const DashboardPage: React.FC = () => {
-  const { prices, settings, trades, history, bbSignal, priceLoading, historyLoading, lastUpdated, sseConnected, addTrade, removeTrade, getDisparityRate, refreshPrices } = useApp();
+  const { prices, settings, trades, holdings, history, bbSignal, priceLoading, historyLoading, lastUpdated, sseConnected, addTrade, removeTrade, getDisparityRate, refreshPrices } = useApp();
   const price = prices['samsung'];
   const rate = getDisparityRate('samsung');
 
@@ -84,6 +84,45 @@ export const DashboardPage: React.FC = () => {
 
     return { avg: +avg.toFixed(2), max: +Math.max(...rates).toFixed(2), min: +Math.min(...rates).toFixed(2), vsAvg: +(rate - avg).toFixed(2), rsi: lastRsi, zScore: +zScore.toFixed(2), avgReversionDays, correlation: +correlation.toFixed(4), momentum: +roc.toFixed(2) };
   }, [chartData, rate]);
+
+  const aiBriefing = useMemo(() => {
+    let insight = '';
+    let recommendation = '';
+    
+    // Calculate current holdings from holdings context
+    const commonHoldings = holdings?.filter(h => h.pairId === 'samsung' && h.type === 'common').reduce((sum, h) => sum + h.quantity, 0) || 0;
+    const preferredHoldings = holdings?.filter(h => h.pairId === 'samsung' && h.type === 'preferred').reduce((sum, h) => sum + h.quantity, 0) || 0;
+
+    // Dynamic Logic
+    if (stats.zScore > 1.5) {
+      insight = `현재 괴리율(${rate.toFixed(1)}%)은 통계적 임계치(Z-Score: ${stats.zScore})를 초과하여 매우 확대된 상태입니다.`;
+      if (commonHoldings > 0) {
+        const suggestSell = Math.max(1, Math.floor(commonHoldings * 0.3));
+        const expectedPref = Math.floor((suggestSell * price.commonPrice) / price.preferredPrice);
+        recommendation = `포트폴리오 분석 결과 보통주 ${formatNumber(commonHoldings)}주를 보유 중입니다. 이 중 약 30%인 보통주 ${formatNumber(suggestSell)}주를 즉시 매도하고, 우선주 약 ${formatNumber(expectedPref)}주로 스위칭하는 전략을 권장합니다.`;
+      } else {
+        recommendation = `보유 중인 보통주가 없어 스위칭이 불가능합니다. 괴리율이 정상화될 때까지 대기하거나 신규 자금으로 우선주 분할 매수를 고려해 볼 수 있습니다.`;
+      }
+    } else if (stats.zScore < -1.5) {
+      insight = `현재 괴리율(${rate.toFixed(1)}%)은 평균 대비 이례적으로 축소된 상태입니다. 보통주가 우선주 대비 저평가된 국면입니다.`;
+      if (preferredHoldings > 0) {
+        const suggestSell = Math.max(1, Math.floor(preferredHoldings * 0.3));
+        const expectedComm = Math.floor((suggestSell * price.preferredPrice) / price.commonPrice);
+        recommendation = `포트폴리오 분석 결과 우선주 ${formatNumber(preferredHoldings)}주를 보유 중입니다. 이 중 약 30%인 우선주 ${formatNumber(suggestSell)}주를 매도하고 보통주 약 ${formatNumber(expectedComm)}주로 스위칭하여 향후 괴리율 확대에 대비하는 것을 추천합니다.`;
+      } else {
+        recommendation = `현재 우선주를 보유하고 계시지 않습니다. 괴리율 축소 사이클이므로 보통주 보유 비중을 늘리는 것이 유리합니다.`;
+      }
+    } else {
+      insight = `현재 괴리율(${rate.toFixed(1)}%)은 과거 단기 평균(${stats.avg}%) 부근에서 안정적인 흐름을 보이고 있습니다.`;
+      if (commonHoldings === 0 && preferredHoldings === 0) {
+        recommendation = `현재 보유 중인 삼성전자 주식이 없습니다. 모의 주문을 통해 트레이딩 시뮬레이션을 먼저 경험해보세요.`;
+      } else {
+        recommendation = `현재 보통주 ${formatNumber(commonHoldings)}주, 우선주 ${formatNumber(preferredHoldings)}주를 보유 중입니다. 지금은 변동성이 적은 구간이므로 추가 매매 없이 현 포지션을 유지(Hold)하는 것이 좋습니다.`;
+      }
+    }
+
+    return { insight, recommendation };
+  }, [rate, stats, holdings, price]);
 
   const simResult = useMemo(() => {
     if (!price.commonPrice) return null;
@@ -236,6 +275,16 @@ export const DashboardPage: React.FC = () => {
         {/* ========================================================= */}
         <div className="xl:col-span-4 flex flex-col gap-4">
           
+          {/* AI ADVISOR PANEL */}
+          <div className="bg-gradient-to-br from-[#1e293b] to-[#0b0e14] border border-[#2563eb]/50 rounded-lg p-5 relative overflow-hidden shadow-[0_0_15px_rgba(37,99,235,0.1)]">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-[#2563eb]/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
+            <h2 className="text-[10px] font-bold tracking-widest text-[#00d4ff] mb-3 flex items-center gap-2"><span>🤖</span> AI 트레이딩 어드바이저</h2>
+            <div className="text-sm font-bold text-white mb-2 leading-snug">{aiBriefing.insight}</div>
+            <div className="bg-[#0b0e14]/60 rounded text-xs text-slate-300 p-3 border border-white/5 font-mono leading-relaxed mt-3">
+              <span className="text-[#00d4ff] font-bold block mb-1">💡 맞춤형 조언:</span> {aiBriefing.recommendation}
+            </div>
+          </div>
+
           {/* INTEL PANEL */}
           <div className="bg-[#0b0e14] border border-[#1e293b] rounded-lg p-5">
             <h2 className="text-[10px] font-bold tracking-widest text-slate-500 mb-4 flex items-center gap-2"><div className="w-1.5 h-1.5 bg-[#00d4ff] rounded-full animate-pulse"></div> 실시간 인텔리전스</h2>

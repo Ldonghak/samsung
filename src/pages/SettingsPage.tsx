@@ -67,15 +67,31 @@ export const SettingsPage: React.FC = () => {
 
       <div className="card mb-6">
         <h2 className="text-lg font-semibold mb-4">🔔 알림 설정</h2>
-        <div className="space-y-3">
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input type="checkbox" checked={s.alertEnabled} onChange={e => setS({ ...s, alertEnabled: e.target.checked })} className="w-4 h-4 accent-cyan-500" />
-            <span className="text-sm">브라우저 푸시 알림</span>
-          </label>
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input type="checkbox" checked={s.signalAlertEnabled} onChange={e => setS({ ...s, signalAlertEnabled: e.target.checked })} className="w-4 h-4 accent-cyan-500" />
-            <span className="text-sm">매매 신호 발생 시 알림</span>
-          </label>
+        <div className="space-y-4">
+          <div className="space-y-3">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" checked={s.alertEnabled} onChange={e => setS({ ...s, alertEnabled: e.target.checked })} className="w-4 h-4 accent-cyan-500" />
+              <span className="text-sm">브라우저 푸시 알림</span>
+            </label>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" checked={s.signalAlertEnabled} onChange={e => setS({ ...s, signalAlertEnabled: e.target.checked })} className="w-4 h-4 accent-cyan-500" />
+              <span className="text-sm">매매 신호 발생 시 텔레그램/브라우저 알림 전송</span>
+            </label>
+          </div>
+          
+          {s.signalAlertEnabled && (
+            <div className="pt-3 border-t border-slate-700/50 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm text-slate-muted block mb-1">텔레그램 Bot Token (선택)</label>
+                <input type="text" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" value={s.telegramToken || ''} onChange={e => setS({ ...s, telegramToken: e.target.value })} className="w-full" />
+              </div>
+              <div>
+                <label className="text-sm text-slate-muted block mb-1">텔레그램 Chat ID (선택)</label>
+                <input type="text" placeholder="123456789" value={s.telegramChatId || ''} onChange={e => setS({ ...s, telegramChatId: e.target.value })} className="w-full" />
+                <p className="text-xs text-slate-muted mt-1">Both Token and Chat ID must be set to receive Telegram alerts.</p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

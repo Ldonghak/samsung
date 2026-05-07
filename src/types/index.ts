@@ -44,6 +44,8 @@ export interface Settings {
   taxRate: number;
   alertEnabled: boolean;
   signalAlertEnabled: boolean;
+  telegramToken?: string;
+  telegramChatId?: string;
 }
 
 export interface PriceHistory {
@@ -73,4 +75,6 @@ export const DEFAULT_SETTINGS: Settings = {
   taxRate: 0.18,
   alertEnabled: true,
   signalAlertEnabled: true,
+  telegramToken: '',
+  telegramChatId: '',
 };

@@ -163,6 +163,51 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => { clearInterval(histInterval); clearInterval(syncInterval); };
   }, [fetchHistory, fetchUserData]);
 
+  // Notification and Telegram Alert
+  const lastAlertedSignal = useRef<string | null>(null);
+
+  useEffect(() => {
+    // Request notification permission if enabled
+    if (settings.alertEnabled && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, [settings.alertEnabled]);
+
+  useEffect(() => {
+    if (!settings.signalAlertEnabled || !bbSignal || bbSignal.signal === 'hold') {
+      if (bbSignal?.signal === 'hold') lastAlertedSignal.current = null;
+      return;
+    }
+
+    // Prevent spamming the same signal repeatedly
+    if (lastAlertedSignal.current === bbSignal.signal) return;
+    lastAlertedSignal.current = bbSignal.signal;
+
+    const actionText = bbSignal.signal === 'buy_preferred' ? '보통주 매도 / 우선주 매수' : '우선주 매도 / 보통주 매수';
+    const message = `[삼성전자 페어트레이딩 알림]\n🎯 강력 매매 시그널 발생!\n\n추천: ${actionText}\n사유: ${bbSignal.reason}\n\n시스템: 통계적 임계치 도달로 인한 스위칭 기회입니다. 즉시 터미널을 확인하세요.`;
+
+    // Browser Notification
+    if (settings.alertEnabled && Notification.permission === 'granted') {
+      new Notification('🔥 스위칭 매매 시그널 포착!', {
+        body: message,
+        icon: '/vite.svg'
+      });
+    }
+
+    // Telegram Notification
+    if (settings.telegramToken && settings.telegramChatId) {
+      const url = `https://api.telegram.org/bot${settings.telegramToken}/sendMessage`;
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: settings.telegramChatId,
+          text: message
+        })
+      }).catch(err => console.error('Telegram send failed:', err));
+    }
+  }, [bbSignal, settings]);
+
   // Manual refresh
   const refreshPrices = useCallback(async () => {
     try {

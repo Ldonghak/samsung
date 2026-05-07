@@ -21,6 +21,10 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+html {
+  font-size: 18px; /* 기본 16px에서 증가시켜 전체 UI 비율 확대 */
+}
+
 body {
   font-family: var(--font-sans);
   background-color: var(--color-navy-950);

@@ -14,11 +14,11 @@ export const Header: React.FC = () => {
   return (
     <>
       <header className="fixed top-0 left-0 right-0 z-50 glass" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
+        <div className="w-full px-4 h-14 flex items-center justify-between">
           <NavLink to="/" className="flex items-center gap-2 no-underline">
             <span className="text-xl font-bold text-cyan-accent">📊</span>
             <span className="text-lg font-bold text-slate-text">삼성전자</span>
-            <span className="text-xs text-slate-muted hidden sm:inline">보통주-우선주 괴리율</span>
+            <span className="text-xl text-slate-muted hidden sm:inline">보통주-우선주 괴리율</span>
           </NavLink>
 
           <nav className="hidden md:flex items-center gap-1">
@@ -26,7 +26,7 @@ export const Header: React.FC = () => {
               <NavLink
                 key={item.to}
                 to={item.to}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all no-underline ${
+                className={`px-4 py-2 rounded-lg text-2xl font-medium transition-all no-underline ${
                   (item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to))
                     ? 'bg-cyan-accent/15 text-cyan-accent'
                     : 'text-slate-muted hover:text-slate-text hover:bg-white/5'
@@ -53,7 +53,7 @@ export const Header: React.FC = () => {
                 key={item.to}
                 to={item.to}
                 onClick={() => setOpen(false)}
-                className={`px-4 py-3 rounded-lg text-sm font-medium transition-all no-underline ${
+                className={`px-4 py-3 rounded-lg text-2xl font-medium transition-all no-underline ${
                   (item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to))
                     ? 'bg-cyan-accent/15 text-cyan-accent'
                     : 'text-slate-muted hover:text-slate-text hover:bg-white/5'

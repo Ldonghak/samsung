@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   frontend:
     build: .
@@ -6,9 +8,16 @@ services:
     depends_on:
       - api
     restart: unless-stopped
+    # optional environment for production
+    environment:
+      - NODE_ENV=production
 
   api:
     build: ./server
+    ports:
+      - "3001:3001"
     volumes:
       - ./server/data:/app/data
     restart: unless-stopped
+    environment:
+      - NODE_ENV=production

@@ -261,8 +261,8 @@ export const DashboardPage: React.FC = () => {
             </div>
 
             <div className="bg-[#151b2b] border border-[#1e293b] p-3 rounded-md text-[11px]">
-              <div className="flex items-center gap-2 mb-1.5"><span className="text-slate-400 font-mono">SYS.RECOM:</span><span className={`font-bold ${bbSignal?.signal !== 'hold' ? 'text-[#ff4757]' : 'text-slate-300'}`}>{bbSignal?.signal === 'buy_preferred' ? 'EXECUTE SHORT COMM / LONG PREF' : bbSignal?.signal === 'buy_common' ? 'EXECUTE LONG COMM / SHORT PREF' : 'MAINTAIN CURRENT POSITION'}</span></div>
-              <div className="text-slate-500 font-mono leading-tight">Statistical extremity reached. Reversion to mean heavily favored based on {periodLabels[chartPeriod]} rolling data matrix.</div>
+              <div className="flex items-center gap-2 mb-1.5"><span className="text-slate-400 font-mono">시스템 권고:</span><span className={`font-bold ${bbSignal?.signal !== 'hold' ? 'text-[#ff4757]' : 'text-slate-300'}`}>{bbSignal?.signal === 'buy_preferred' ? '보통주 매도 / 우선주 매수 실행' : bbSignal?.signal === 'buy_common' ? '우선주 매도 / 보통주 매수 실행' : '현재 포지션 유지 (관망)'}</span></div>
+              <div className="text-slate-500 font-mono leading-tight">{bbSignal?.signal !== 'hold' ? `통계적 임계치 도달. ${periodLabels[chartPeriod]} 누적 데이터를 바탕으로 볼 때 강한 평균 회귀가 예상됩니다.` : `${periodLabels[chartPeriod]} 누적 데이터 기준 통계적 정상 범위 내에 있습니다.`}</div>
             </div>
           </div>
 

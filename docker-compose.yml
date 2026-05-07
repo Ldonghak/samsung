@@ -1,0 +1,14 @@
+services:
+  frontend:
+    build: .
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  api:
+    build: ./server
+    volumes:
+      - ./server/data:/app/data
+    restart: unless-stopped
